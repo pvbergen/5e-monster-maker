@@ -2,21 +2,9 @@
   <q-layout view="hHh lpR fFf">
     <q-header id="main-nav" elevated height-hint="64">
       <q-toolbar>
-        <q-btn
-          flat
-          dense
-          round
-          aria-label="Menu"
-          icon="menu"
-          class="q-mr-sm"
-          @click="toggleLeftDrawer"
-        />
+        <q-btn flat dense round aria-label="Menu" icon="menu" class="q-mr-sm" @click="toggleLeftDrawer" />
 
-        <q-toolbar-title
-          v-if="$q.screen.gt.xs"
-          shrink
-          class="row items-center no-wrap"
-        >
+        <q-toolbar-title v-if="$q.screen.gt.xs" shrink class="row items-center no-wrap">
           <span class="q-ml-sm">{{ $t('app.name') }}</span>
         </q-toolbar-title>
 
@@ -30,13 +18,9 @@
 
         <div class="q-gutter-sm row items-center no-wrap">
           <web-renderer-settings-button />
-          <q-btn
-            round
-            flat
-            icon="mdi-folder-open"
-            @click="loadFileDialog()"
-          ></q-btn>
+          <q-btn round flat icon="mdi-folder-open" @click="loadFileDialog()"></q-btn>
           <download-button />
+          <q-separator vertical />
           <save-button />
         </div>
       </q-toolbar>
@@ -69,18 +53,8 @@
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn
-            flat
-            :label="$t('editor.load')"
-            color="positive"
-            @click="loadFromDataParam"
-          />
-          <q-btn
-            v-close-popup
-            flat
-            :label="$t('editor.cancel')"
-            color="negative"
-          />
+          <q-btn flat :label="$t('editor.load')" color="positive" @click="loadFromDataParam" />
+          <q-btn v-close-popup flat :label="$t('editor.cancel')" color="negative" />
         </q-card-actions>
       </q-card>
     </q-dialog>

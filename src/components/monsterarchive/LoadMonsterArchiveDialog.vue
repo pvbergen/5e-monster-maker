@@ -27,12 +27,12 @@
 <script lang="ts">
 import { defineComponent, ref } from 'vue'
 import { useDialogPluginComponent, useQuasar } from 'quasar'
-import { useMonsterArchiveStore } from 'src/stores/monster-archive-store'
 import { validate } from 'jsonschema'
 import { SCHEMA } from 'src/data/SCHEMA'
 import { useI18n } from 'vue-i18n'
-import { MonsterEntry } from '../models'
 import { useFileLoader } from 'src/components/file/useFileLoader'
+import { db } from 'src/db/database';
+import MonsterArchive from 'src/db/MonsterArchive'
 
 export default defineComponent({
   name: 'LoadMonsterArchiveDialog',
@@ -54,7 +54,7 @@ export default defineComponent({
 
     const $q = useQuasar()
     const { t } = useI18n()
-    const monsterArchiveStore = useMonsterArchiveStore()
+    const monsterArchive = db.getMonsterArchive()
     const { updateMonster } = useFileLoader()
 
     // load fields
@@ -62,60 +62,28 @@ export default defineComponent({
     const overwrite = ref(false)
 
     /**
-     * Import the uploaded archive.
+     * Process the uploaded archive.
      */
     const importMonsterArchive = () => {
       if (file.value != null) {
         const reader = new FileReader()
         reader.addEventListener('load', (e: ProgressEvent<FileReader>) => {
           try {
-            let imported = 0;
-            let skipped = 0;
-            let invalid = 0;
-            let monsters = JSON.parse(e.target?.result as string)
-            monsters = (Object.values(monsters) as MonsterEntry[])
-            monsters.forEach((entry: MonsterEntry) => {
-              updateMonster(entry.monster)
-              const valid = validate(entry.monster, SCHEMA[entry.monster.saveVersion])
-              if (valid.valid) {
-                let result = monsterArchiveStore.import(entry, overwrite.value)
-                if (result) {
-                  imported++
-                } else if (!overwrite.value) {
-                  skipped++
-                }
-              } else {
-                invalid++
-              }
-            })
-            $q.notify({
-              message: t(
-                'editor.monsterarchive.importResult',
-                { n: imported },
-                imported
-              ),
-              type: 'positive',
-            })
-
-            if (skipped > 0) {
-              $q.notify({
-                message: t(
-                  'editor.monsterarchive.importSkip',
-                  { n: skipped },
-                  skipped
-                ),
-                type: 'warning',
+            let monsters: MonsterArchive[] = JSON.parse(e.target?.result as string)
+            if (overwrite.value && monsters.find((e) => e.uuid == monsterArchive.getCurrentMonster().uuid) != undefined) {
+              // If we overwrite or current monster is in import, ask user for confirmation.
+              $q.dialog({
+                title: 'Confirm',
+                message: `The import list contains the active monster.Do you want to overwrite the active monster?`,
+                color: 'negative',
+                ok: `Yes, I'm sure`,
+                cancel: true,
+              }).onOk(() => {
+                runImport(monsters, overwrite.value)
               })
-            }
-            if (invalid > 0) {
-              $q.notify({
-                message: t(
-                  'editor.monsterarchive.importInvalid',
-                  { n: invalid },
-                  invalid
-                ),
-                type: 'warning',
-              })
+            } else {
+              // If we don't overwrite or current monster is not in import, go ahead.
+              runImport(monsters, overwrite.value)
             }
           } catch (e) {
             $q.notify({
@@ -138,14 +106,85 @@ export default defineComponent({
       }
     }
 
+    /**
+     * Import a list of monsters.
+     * 
+     * @param monsters 
+     *   The list of monsters.
+     * @param overwrite 
+     *   Whether to overwrite entries with the same uuid.
+     */
+    const runImport = (monsters: MonsterArchive[], overwrite = false) => {
+      let imported = 0;
+      let skipped = 0;
+      let invalid = 0;
+      let promises: Promise<string>[] = []
+      monsters.forEach((entry: MonsterArchive) => {
+        // Update and validate the entry.
+        updateMonster(entry.monster)
+        const valid = validate(entry.monster, SCHEMA[entry.monster.saveVersion])
+        if (valid.valid) {
+          // Import the entry.
+          const promise = monsterArchive.importEntry(entry, overwrite)
+          promise.then((result) => {
+            if (result) {
+              imported++
+            } else if (!overwrite) {
+              skipped++
+            }
+          })
+          promise.catch((reason) => {
+            $q.notify({
+              message: t(reason),
+              type: 'negative'
+            })
+            invalid++
+          })
+          promises.push(promise)
+        } else {
+          invalid++
+        }
+      })
+
+      // Wait for all promises to resolve, then inform user.
+      Promise.all(promises).then(() => {
+        $q.notify({
+          message: t(
+            'editor.monsterarchive.importResult',
+            { n: imported },
+            imported
+          ),
+          type: 'positive',
+        })
+
+        if (skipped > 0) {
+          $q.notify({
+            message: t(
+              'editor.monsterarchive.importSkip',
+              { n: skipped },
+              skipped
+            ),
+            type: 'warning',
+          })
+        }
+        if (invalid > 0) {
+          $q.notify({
+            message: t(
+              'editor.monsterarchive.importInvalid',
+              { n: invalid },
+              invalid
+            ),
+            type: 'warning',
+          })
+        }
+
+      })
+    }
+
     return {
-      // This is REQUIRED;
-      // Need to inject these (from useDialogPluginComponent() call)
-      // into the vue scope for the vue html template
       dialogRef,
       onDialogHide,
 
-      // Process ok click.
       onOKClick() {
         // Run upload and import.
         importMonsterArchive()
@@ -154,8 +193,6 @@ export default defineComponent({
       },
 
       onCancelClick: onDialogCancel,
-
-      monsterArchiveStore,
       // fields
       file,
       overwrite,

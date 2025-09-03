@@ -37,5 +37,5 @@
     "src-pwa/*.d.ts",
     "src-bex/*.d.ts",
     "src-ssr/*.d.ts"
-  ]
+, "src/db/Dexie.UUIDPrimaryKey.js"  ]
 }

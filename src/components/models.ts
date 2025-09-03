@@ -367,6 +367,7 @@ export interface MonsterArchive {
 
 // Define a monster entry with necessary metadata.
 export interface MonsterEntry {
+  id: number,
   created_at: Date,
   updated_at: Date,
   monster: Monster

@@ -5,7 +5,7 @@
         rowsPerPage: 15,
         sortBy: 'updated_at',
         descending: true
-      }" row-key="created_at" class="q-mx-auto q-my-md" selection="multiple" style="width: 98vw">
+      }" row-key="uuid" class="q-mx-auto q-my-md" selection="multiple" style="width: 98vw">
       <template #top>
         <div class="text-h6">{{ $t('editor.monsterarchive.title') }}</div>
         <q-space />
@@ -13,20 +13,20 @@
           {{ $t('editor.monsterarchive.delete', selected.length) }}</q-btn>
         <q-btn color="primary" class="q-mr-md" @click="importMonsters">{{
           $t('editor.monsterarchive.import')
-        }}</q-btn>
+          }}</q-btn>
         <q-btn color="primary" class="q-mr-md" @click="downloadMonsters">{{
           $t('editor.monsterarchive.export', { n: selected.length })
-        }}</q-btn>
+          }}</q-btn>
         <q-btn color="positive" @click="saveMonster">{{
           $t('editor.monsterarchive.save_current')
-        }}</q-btn>
+          }}</q-btn>
       </template>
       <template #body="props">
         <q-tr :props="props">
           <q-td>
             <q-checkbox v-model="props.selected" />
           </q-td>
-          <q-td key="name" :props="props">{{ props.row.monster.name }}</q-td>
+          <q-td key="name" :props="props">{{ props.row.name }}</q-td>
           <q-td key="created_at">
             {{ new Date(props.row.created_at).toLocaleString() }}
           </q-td>
@@ -34,12 +34,10 @@
             {{ new Date(props.row.updated_at).toLocaleString() }}
           </q-td>
           <q-td key="actions">
-            <q-btn icon="mode_edit" :title="$t('editor.monsterarchive.load')"
-              @click="loadMonster(props.row.monster)"></q-btn>
+            <q-btn icon="mode_edit" :title="$t('editor.monsterarchive.load')" @click="loadMonster(props.row)"></q-btn>
             <q-btn icon="download" :title="$t('editor.monsterarchive.export_single')"
-              @click="downloadSingle(props.row.monster)"></q-btn>
-            <q-btn icon="delete" :title="$t('editor.monsterarchive.delete')"
-              @click="deleteMonster(props.row.monster)"></q-btn>
+              @click="downloadSingle(props.row)"></q-btn>
+            <q-btn icon="delete" :title="$t('editor.monsterarchive.delete')" @click="deleteMonster(props.row)"></q-btn>
           </q-td>
         </q-tr>
       </template>
@@ -49,30 +47,36 @@
 
 <script lang="ts">
 import { QTableProps, useQuasar } from 'quasar'
-import { useMonsterStore } from 'src/stores/monster-store'
-import { useMonsterArchiveStore } from 'src/stores/monster-archive-store'
-import { computed, defineComponent, ref } from 'vue'
+import { defineComponent, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Monster, MonsterEntry } from 'src/components/models'
 import { download, saveJson } from 'src/components/file/download'
 import { validateNumber } from 'src/components/editor/numberInput'
 import { useRouter } from 'vue-router'
 import LoadMonsterArchiveDialog from 'src/components/monsterarchive/LoadMonsterArchiveDialog.vue'
+import NewMonsterArchiveDialog from 'src/components/monsterarchive/NewMonsterArchiveDialog.vue'
 import { useFileLoader } from 'src/components/file/useFileLoader'
 import { validate } from 'jsonschema'
 import { SCHEMA } from 'src/data/SCHEMA'
+import { db } from "src/db/database";
+import MonsterArchive from 'src/db/MonsterArchive'
 
 export default defineComponent({
   name: 'MonsterArchive',
   setup() {
     const { t } = useI18n()
     const $q = useQuasar()
-    const monsterArchiveStore = useMonsterArchiveStore()
     const selected = ref([])
     const router = useRouter()
-    const monsters = computed(() => Object.values(monsterArchiveStore.allMonsters))
+    let monsters = ref([])
+    const refresh = ref(0)
     const { updateMonster } = useFileLoader()
-    const monsterStore = useMonsterStore()
+    const monsterArchive = db.getMonsterArchive()
+
+    monsterArchive.on((changes, partial) => {
+      console.log(changes)
+      db.monsterArchive.toArray().then((data) => monsters.value = data);
+    })
+
     // Define the columns.
     const columns: QTableProps['columns'] = [
       {
@@ -115,40 +119,62 @@ export default defineComponent({
      * @param monster
      *   The monster to load.
      */
-    const loadMonster = (monster: Monster) => {
-      if (confirm(t('editor.monsterarchive.overwrite_current'))) {
-        try {
-          // Update archived monster, might be an older version
-          updateMonster(monster);
-          const valid = validate(monster, SCHEMA[monster.saveVersion]);
-          if (valid.valid) {
-            // Save updated version back in archive
-            const result = monsterArchiveStore.addMonster(monster, true, true)
-            if (!result.error) {
-              // Load monster into active store
-              monsterStore.$state = monster
-              $q.notify({
-                message: t('editor.monsterarchive.loaded'),
-                type: 'positive',
-              })
-              router.push({ path: '/' })
-            }
-          } else {
+    const loadMonster = (entry: MonsterArchive) => {
+      if (monsterArchive.isChanged()) {
+        $q.dialog({
+          title: 'Confirm',
+          message: t('editor.monsterarchive.overwrite_save_current'),
+          cancel: t('editor.monsterarchive.overwrite_current_no'),
+          ok: t('editor.monsterarchive.overwrite_current_yes'),
+        }).onOk(() => {
+          saveMonster()
+          doLoadMonster(entry)
+        }).onCancel(() => {
+          doLoadMonster(entry)
+        })
+      } else {
+        doLoadMonster(entry)
+      }
+    }
+
+    /**
+     * Load a monster from the archive into the builder and redirect to builder.
+     * 
+     * @param monster
+     *   The monster to load.
+     */
+    const doLoadMonster = (entry: MonsterArchive) => {
+      try {
+        // Update archived monster, might be an older version
+        updateMonster(entry.monster);
+        const valid = validate(entry.monster, SCHEMA[entry.monster.saveVersion]);
+        if (valid.valid) {
+          // Save updated version back in archive
+          const result = monsterArchive.activateMonster(entry.uuid).then((result) => {
+
             $q.notify({
-              message: t('editor.monsterarchive.loadError', [
-                valid.errors.map((e) => e.stack).join(', '),
-              ]),
-              type: 'negative',
+              message: t('editor.monsterarchive.loaded'),
+              type: 'positive',
             })
-            console.error(valid.errors)
-          }
-        } catch (e) {
+            router.push({ path: '/' })
+          }).catch((reason) => {
+            console.log(reason)
+          })
+        } else {
           $q.notify({
-            message: t('editor.monsterarchive.loaderror', [e]),
+            message: t('editor.monsterarchive.loadError', [
+              valid.errors.map((e) => e.stack).join(', '),
+            ]),
             type: 'negative',
           })
-          console.error(e)
+          console.error(valid.errors)
         }
+      } catch (e) {
+        $q.notify({
+          message: t('editor.monsterarchive.loaderror', [e]),
+          type: 'negative',
+        })
+        console.error(e)
       }
     }
 
@@ -158,67 +184,103 @@ export default defineComponent({
      * @param monster
      *   The monster to delete.
      */
-    const deleteMonster = (monster: Monster) => {
-      if (confirm(t('editor.monsterarchive.delete_confirmation', { n: 1 }))) {
-        monsterArchiveStore.deleteMonster(monster)
-      }
+    const deleteMonster = (entry: MonsterArchive) => {
+      $q.dialog({
+        title: 'Confirm',
+        message: t('editor.monsterarchive.delete_confirmation', { name: entry.name }),
+        cancel: true
+      }).onOk(() => {
+        monsterArchive.deleteMonster(entry)
+      })
     }
 
     /**
      * Delete selected monsters from the archive (asking for confirmation).
      */
     const deleteMonsters = () => {
-      if (confirm(t('editor.monsterarchive.delete_confirmation', { n: selected.value.length }))) {
+      let n = selected.value.length;
+      if (n < 2 && selected.value.at(0) != undefined) {
+        n = selected.value.at(0).name
+      }
+      $q.dialog({
+        title: 'Confirm',
+        message: t('editor.monsterarchive.delete_confirmation', { n: n }),
+        cancel: {
+          push: true
+        }
+      }).onOk(() => {
         selected.value.forEach(
-          (e: MonsterEntry) => monsterArchiveStore.deleteMonster(e.monster)
+          (e: MonsterArchive) => monsterArchive.deleteMonster(e)
         )
         selected.value = []
-      }
+      })
     }
 
     /**
      * Download a monster as json (as with download button).
      * 
-     * @param monster
-     *   The monster to download.
+     * @param entry
+     *   The monster entry to download.
      */
-    const downloadSingle = (monster: Monster) => {
-      saveJson(monster, `${monster.name}.5emm.json`)
+    const downloadSingle = (entry: MonsterArchive) => {
+      saveJson(entry.monster, `${entry.name}.5emm.json`)
     }
 
     /**
      * Download all or selected monster as a list in json format.
      */
     const downloadMonsters = () => {
-      let list: Record<string, MonsterEntry> = {};
+      let list: string[] = [];
+      let promise: Promise<(MonsterArchive | undefined)[]>
       if (selected.value.length > 0) {
         selected.value.forEach(
-          (e: MonsterEntry) => list[e.monster.name] = monsterArchiveStore.monsters[e.monster.name]
+          (e: MonsterArchive) => list.push(e.uuid)
         )
+        promise = monsterArchive.getMonsters(list)
       } else {
-        list = monsterArchiveStore.monsters
+        promise = monsterArchive.getAllMonsters()
       }
-      download(
-        JSON.stringify(list),
-        'monster-archive.5emms.json',
-        'application/json'
-      )
+      promise.then((result) => {
+        if (result != undefined) {
+          result.forEach((e) => {
+            delete (e as { current?: string }).current;
+          })
+          download(
+            JSON.stringify(result),
+            'monster-archive.5emms.json',
+            'application/json'
+          )
+        }
+      })
+
     }
 
     /**
      * Save the current monster.
      */
     const saveMonster = () => {
-      let overwrite = false;
-      if (monsterArchiveStore.isMonsterSaved(monsterStore.$state)) {
-        overwrite = confirm(t('editor.monsterarchive.overwrite_save'))
+      if (!monsterArchive.hasCurrentMonster()) {
+        $q.dialog({
+          component: NewMonsterArchiveDialog,
+          componentProps: {
+            rename: false
+          }
+        })
+      } else {
+        monsterArchive.saveCurrentMonster().then((result) => {
+          $q.notify({
+            message: t(result.message),
+            type: 'positive'
+          });
+        }).catch((reason) => {
+          $q.notify({
+            message: reason,
+            type: 'negative'
+          });
+        })
       }
-      const result = monsterArchiveStore.addMonster(monsterStore.$state, overwrite);
-      $q.notify({
-        message: t(result.message),
-        type: result.error ? 'negative' : 'positive',
-      })
     }
+
 
     /**
      * Open import dialog.
@@ -242,6 +304,9 @@ export default defineComponent({
       importMonsters,
       validateNumber,
     }
+  },
+  async mounted() {
+    this.monsters = await db.monsterArchive.toArray()
   },
 })
 </script>

@@ -62,6 +62,7 @@ a:hover {
 }
 
 @media print {
+
   #main-nav,
   #editor,
   #footer {

@@ -1,37 +1,66 @@
 <template>
-  <q-btn round flat icon="save" @click="saveMonster()" title="{{ $t('editor.monsterarchive.save-button') }}">
+  <q-btn round flat icon="save" @click="saveMonster()" title="{{ $t('editor.monsterarchive.save') }}">
+  </q-btn>
+  <q-btn round flat icon="save_as" @click="saveNewMonster()" title="{{ $t('editor.monsterarchive.save_new') }}">
   </q-btn>
 </template>
 
 <script lang="ts">
 import { useQuasar } from 'quasar'
-import { useMonsterStore } from '../../stores/monster-store'
 import { defineComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMonsterArchiveStore } from 'src/stores/monster-archive-store'
+import { db } from 'src/db/database';
+import NewMonsterArchiveDialog from '../monsterarchive/NewMonsterArchiveDialog.vue';
+import { useMonsterStore } from 'src/stores/monster-store';
 
 export default defineComponent({
   name: 'SaveButton',
   setup() {
-    const monsterStore = useMonsterStore()
     const $q = useQuasar()
     const { t } = useI18n()
-    const monsterArchiveStore = useMonsterArchiveStore();
+    const monster = useMonsterStore()
 
     const saveMonster = () => {
-      let overwrite = false;
-      if (monsterArchiveStore.isMonsterSaved(monsterStore.$state)) {
-        overwrite = confirm(t('editor.monsterarchive.overwrite_save'))
+      const monsterArchive = db.getMonsterArchive()
+      if (!monsterArchive.hasCurrentMonster()) {
+        saveNewMonster(false)
+      } else {
+        monsterArchive.saveCurrentMonster().then((result) => {
+          $q.notify({
+            message: t('editor.monsterarchive.overwrite_saved'),
+            type: 'positive'
+          });
+        }).catch((reason) => {
+          $q.notify({
+            message: t(reason),
+            type: 'negative'
+          });
+        })
       }
-      const result = monsterArchiveStore.addMonster(monsterStore.$state, overwrite);
+    }
+
+    const saveNewMonster = (rename = true) => {
+      $q.dialog({
+        component: NewMonsterArchiveDialog,
+        componentProps: {
+          rename: rename
+        }
+      })
+    }
+
+    const resetMonster = () => {
+      monster.$reset()
+      db.getMonsterArchive().reset()
       $q.notify({
-        message: t(result.message),
-        type: result.error ? 'negative' : 'positive',
+        message: t('editor.monsterReset'),
+        type: 'positive',
       })
     }
 
     return {
-      saveMonster
+      saveMonster,
+      saveNewMonster,
+      resetMonster
     }
 
   }

@@ -3,8 +3,7 @@
     <q-list>
       <q-item clickable to="/">
         <q-item-section avatar><q-icon name="home" /></q-item-section>
-        <q-item-section>{{ $t('editor.home') }}</q-item-section></q-item
-      >
+        <q-item-section>{{ $t('editor.home') }}</q-item-section></q-item>
       <q-item clickable to="/monsterarchive">
         <q-item-section avatar><q-icon name="library_books" /></q-item-section>
         <q-item-section>{{ $t('editor.monsterarchive.menu') }}</q-item-section>
@@ -22,7 +21,7 @@
         <q-item-section avatar><q-icon name="auto_fix_high" /></q-item-section>
         <q-item-section>{{
           $t('editor.spellcasting.custom.create')
-        }}</q-item-section>
+          }}</q-item-section>
       </q-item>
       <q-item clickable @click="crTable = true">
         <q-item-section avatar><q-icon name="table_chart" /></q-item-section>
@@ -30,9 +29,7 @@
       </q-item>
       <q-separator />
       <q-item clickable @click="reset">
-        <q-item-section avatar
-          ><q-icon name="restart_alt" color="negative"
-        /></q-item-section>
+        <q-item-section avatar><q-icon name="restart_alt" color="negative" /></q-item-section>
         <q-item-section>{{ $t('editor.resetMonster') }}</q-item-section>
       </q-item>
     </q-list>
@@ -89,6 +86,7 @@ import { computed, defineComponent, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { renderBonus } from './rendering/mathRendering'
 import NewSpellDialog from './spell/NewSpellDialog.vue'
+import { db } from 'src/db/database';
 
 export default defineComponent({
   name: 'AppDrawer',
@@ -109,7 +107,7 @@ export default defineComponent({
       drawerRef.value?.hide()
 
       monster.$reset()
-
+      db.getMonsterArchive().reset()
       $q.notify({
         message: t('editor.monsterReset'),
         type: 'positive',
